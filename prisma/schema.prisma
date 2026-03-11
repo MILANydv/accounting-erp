@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      Member[]
+  accounts     Account[]
+  fiscalYears  FiscalYear[]
+  journalEntries JournalEntry[]
+  auditLogs    AuditLog[]
+
+  @@index([slug])
+  @@index([createdAt])
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships Member[]
+  auditLogs   AuditLog[]
+  sessions    Session[]
+
+  @@index([email])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Member {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  roleId         String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model Role {
+  id             String       @id @default(uuid())
+  name           String
+  organizationId String?
+  description    String?
+  isSystem       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  permissions Permission[]
+  members     Member[]
+
+  @@index([organizationId])
+}
+
+model Permission {
+  id       String @id @default(uuid())
+  action   String
+  resource String
+
+  roles Role[]
+
+  @@unique([action, resource])
+}
+
+model Account {
+  id             String      @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  description    String?
+  type           AccountType
+  subType        String?
+  parentId       String?
+  isActive       Boolean     @default(true)
+  allowManualEntry Boolean   @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         Account?     @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children       Account[]    @relation("AccountHierarchy")
+  journalLines   JournalLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([parentId])
+  @@index([type])
+}
+
+model FiscalYear {
+  id             String   @id @default(uuid())
+  organizationId String
+  year           Int
+  startDate      DateTime
+  endDate        DateTime
+  isLocked       Boolean  @default(false)
+  isCurrent      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  journalEntries  JournalEntry[]
+
+  @@unique([organizationId, year])
+  @@index([organizationId])
+}
+
+model JournalEntry {
+  id             String      @id @default(uuid())
+  organizationId String
+  fiscalYearId   String
+  entryNumber    String
+  date           DateTime
+  description    String?
+  status         EntryStatus @default(DRAFT)
+  reference      String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  postedAt       DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fiscalYear   FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  lines       JournalLine[]
+
+  @@unique([organizationId, entryNumber])
+  @@index([organizationId])
+  @@index([fiscalYearId])
+  @@index([status])
+  @@index([date])
+}
+
+model JournalLine {
+  id             String       @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  debit          Decimal      @db.Decimal(15, 2)
+  credit         Decimal      @db.Decimal(15, 2)
+  description    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([accountId])
+}
+
+model AuditLog {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String
+  oldData        Json?
+  newData        Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum EntryStatus {
+  DRAFT
+  POSTED
+  VOID
+}
